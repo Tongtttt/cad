@@ -303,7 +303,7 @@ class FileIPCBackend(AutoCADBackend):
         """
         request_id = uuid.uuid4().hex[:12]
         code_file = self._ipc_dir / f"autocad_mcp_lisp_{request_id}.lsp"
-        code_file.write_text(code, encoding="utf-8")
+        code_file.write_text(code, encoding="gbk")
         return await self._dispatch("execute-lisp", {
             "code_file": str(code_file).replace("\\", "/")
         })
