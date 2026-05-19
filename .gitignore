@@ -60,6 +60,14 @@ claude_desktop_config.json
 # Local test files
 test_*.dwg
 temp_*.lsp
+_*.py
+_*.png
+_*.jpg
+_*.dxf
+_*.dwg
+!_.mcp.json
+!_draw_final_v3.py
+!_cad_setup2.py
 
 # CTO Library (not included in repo)
 PIDv4-CTO/
