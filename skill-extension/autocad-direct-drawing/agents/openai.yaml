@@ -1,0 +1,7 @@
+﻿interface:
+  display_name: "AutoCAD Direct Drawing"
+  short_description: "Connect Codex to live AutoCAD drawings on Windows and fall back to loadable CAD artifacts when direct automation is blocked."
+  default_prompt: "Use $autocad-direct-drawing to connect to my open AutoCAD drawing and draw or import the requested geometry."
+
+policy:
+  allow_implicit_invocation: true

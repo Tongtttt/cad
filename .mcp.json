@@ -5,7 +5,7 @@
       "command": "cmd.exe",
       "args": [
         "/d", "/s", "/c",
-        "cd /d C:\\Users\\ASUS\\autocad-mcp && .venv\\Scripts\\python.exe -m autocad_mcp"
+        "cd /d <repo-root> && .venv\\Scripts\\python.exe -m autocad_mcp"
       ],
       "env": {
         "AUTOCAD_MCP_BACKEND": "auto"

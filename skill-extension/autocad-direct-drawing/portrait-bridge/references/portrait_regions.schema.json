@@ -1,0 +1,15 @@
+﻿{
+  "version": 1,
+  "regions": [
+    { "id": "outer_silhouette", "label": "外轮廓", "type": "poly-region" },
+    { "id": "hair_main", "label": "头发主线", "type": "poly-region" },
+    { "id": "hair_detail", "label": "头发细节", "type": "poly-region" },
+    { "id": "face_features", "label": "五官", "type": "poly-region" },
+    { "id": "hand", "label": "手部", "type": "poly-region" },
+    { "id": "cloth", "label": "衣物", "type": "poly-region" },
+    { "id": "flower_main", "label": "花朵主轮廓", "type": "poly-region" },
+    { "id": "flower_detail", "label": "花朵细节", "type": "poly-region" },
+    { "id": "ornament", "label": "饰品", "type": "poly-region" },
+    { "id": "misc", "label": "其他细节", "type": "poly-region" }
+  ]
+}
