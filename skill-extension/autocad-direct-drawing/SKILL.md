@@ -169,17 +169,17 @@ When portrait linework contains many short broken segments:
 
 For portrait line art based on a reference image, separate major structures into layers before smoothing or joining.
 
-Recommended logical groups:
-- outer silhouette
-- main hair masses
-- fine hair/detail strands
-- facial features
-- hands
-- clothing
-- main flowers
-- flower inner detail
-- ornaments and jewelry
-- leftover misc detail
+Recommended logical groups (Chinese layer names, all white/color 7):
+- 外轮廓
+- 头发主块
+- 头发细节
+- 五官
+- 手部
+- 衣物
+- 花朵主轮廓
+- 花朵细节
+- 饰品
+- 其他细节
 
 Reason: layer-first cleanup reduces accidental joins across unrelated features and makes local retries safer.
 
@@ -229,8 +229,20 @@ Use this recovery order:
 
 1. Detect the visible AutoCAD desktop window first
 2. Prefer `[System.Runtime.InteropServices.Marshal]::GetActiveObject('AutoCAD.Application.*')` over `New-Object -ComObject` when the visible session is already open
-3. If `ActiveDocument` looks empty at first, retry and re-activate the visible document before assuming COM failed
+3. **CRITICAL: After GetActiveObject succeeds, check `$acad.Visible` and set it to `$true` if needed. If the window was previously hidden (e.g. by a prior `New-Object -ComObject` session), COM calls will fail with "AutoCAD 主窗口不可见". Set `$acad.Visible = $true` and `$acad.WindowState = 3` before any ModelSpace operations.**
 4. Once `ActiveDocument.Name`, `FullName`, and `ModelSpace.Count` are non-empty, prefer direct COM entity processing over SendKeys
+
+**Working COM connection pattern (to visible AutoCAD):**
+```powershell
+$acad = [System.Runtime.InteropServices.Marshal]::GetActiveObject("AutoCAD.Application.24")
+if (-not $acad.Visible) {
+    $acad.Visible = $true
+    $acad.WindowState = 3  # acMax
+    Start-Sleep -Milliseconds 200
+}
+$doc = $acad.ActiveDocument
+# Now safe to call $doc.ModelSpace.AddCircle(...) etc.
+```
 
 ## Current Practical Boundary
 
@@ -244,6 +256,63 @@ This skill can now do all of the following when the local bridge is configured:
 
 This skill still does **not** have a fully reliable non-interactive bridge for AutoCAD's interactive `PEDIT/JOIN/SMOOTH` command chain.
 When the user asks for fully automatic final smoothing, treat SendKeys-based command injection as best-effort only and document that risk explicitly.
+
+## COM: Hidden Instance Cleanup
+
+Multiple `acad.exe` processes are common on this machine. `GetActiveObject` may attach to a hidden/headless instance instead of the visible desktop window, causing `Documents.Count` to show an empty document with no open drawings.
+
+**Before connecting, always kill hidden acad.exe instances:**
+
+```powershell
+$procs = Get-Process acad -ErrorAction SilentlyContinue
+foreach ($p in $procs) {
+    if ([string]::IsNullOrEmpty($p.MainWindowTitle)) {
+        $p.Kill()  # hidden instance — remove it
+    }
+}
+# Then GetActiveObject will only find the visible desktop AutoCAD
+```
+
+After cleanup, `GetActiveObject("AutoCAD.Application.24")` should show the correct documents with non-empty `ModelSpace.Count`.
+
+## Image-to-CAD: Closed Contours vs Open Segments
+
+**This is the most important lesson for portrait tracing quality.**
+
+### The problem
+
+Canny edge detection + `findContours` produces **closed polygon contours** that wrap around detected regions. When imported as closed polylines (`AddLightWeightPolyline` with `Closed = $true`), each contour becomes a hard polygonal loop. This looks stiff and unnatural — not like hand-drawn line art.
+
+### The reference quality target
+
+A good hand-traced portrait drawing uses **open polyline segments** that follow edges like brush strokes. Key characteristics of a good reference:
+
+| Metric | Good reference | Bad (closed contour) |
+|--------|---------------|---------------------|
+| Entities | ~2800+ open polylines | ~600 closed polylines |
+| Vertices per segment | 3-20 (mostly 4-8) | 10-50+ |
+| Closed | **All false** | All true |
+| Visual feel | Soft, flowing line art | Hard, faceted polygons |
+
+### The approach (incomplete — quality not solved)
+
+Splitting closed contours into short open chunks (6 vertices each, 1-vertex overlap) can increase entity count to ~2900 and mimic the segment density, but **the visual result is still poor** because:
+
+1. Canny edge topology fundamentally differs from artist-drawn strokes
+2. Splitting a contour doesn't change where the edge pixels are
+3. Polygon approximation removes organic hand-drawn curvature
+4. No stroke-direction or line-weight variation
+
+### Known limitations
+
+- OpenCV Canny + contour extraction is **not sufficient** for production-quality portrait line art
+- True curve vectorization (potrace-style centerline tracing, LSD line segments, or ML-based sketch extraction) would likely produce better results
+- The current pipeline is acceptable for rough layout but not for finished portrait drawings
+- `portrait-bridge/` with ComfyUI / ML models is the intended long-term path for quality improvement
+
+### Do NOT blindly iterate parameters
+
+When quality is poor, changing thresholds (Canny low/high, RDP epsilon, area cutoff, chunk size) produces marginal differences but never fundamentally fixes the closed-contour problem. **State clearly that the OpenCV approach has intrinsic limits** rather than silently iterating dozens of parameter combinations.
 
 ## Project Mode Split
 
