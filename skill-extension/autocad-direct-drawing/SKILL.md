@@ -338,3 +338,237 @@ Rules:
 - Prioritize dimensional logic, standards, structure, constraints, annotation meaning, and drawing correctness over visual similarity
 - Do not rely on image-like approximation when the task is really an engineering drawing
 - If the user does not explicitly say the target is a person or a character image, assume they want rigorous engineering drafting
+
+#### 2a. Mode activation
+
+This mode activates automatically when the user mentions any of: P&ID, process flow, piping, equipment layout, valve, pump, tank, instrument, BFD, PFD, isometric, plot plan, GA, chemical, plant, flange, pipe, DN, PN, exchanger, reactor, compressor, blower, steam, condensate, cooling water, nitrogen, relief, safety valve, control loop, DCS, PLC, ISA tag (e.g., FIC-101), line number with hyphens (e.g., 6-P-1001-B1A), HG/T or HG standard, ASME B31 or ASME B16, DEXPI.
+
+Ambiguous CAD requests without explicit portrait reference default here.
+
+#### 2b. Chemical drawing type hierarchy
+
+Know which drawing type the user needs before inserting geometry:
+
+| Level | Type | Content | MCP Tools |
+|-------|------|---------|-----------|
+| 1 | BFD (Block Flow Diagram) | Major blocks + flow arrows, no equipment detail | `draw_process_line`, `add_flow_arrow`, `add_equipment_tag` |
+| 2 | PFD (Process Flow Diagram) | Major equipment, stream tables, operating conditions | `insert_symbol` (EQUIPMENT), `insert_pump`, `insert_tank` for major items |
+| 3 | **P&ID** (Piping & Instrumentation Diagram) | All equipment/valves/instruments, line numbers, full ISA tags | **All 12 `pid` operations** — this is where the full toolchain shines |
+| 4 | Plot Plan / GA | Equipment layout with coordinates, steel, civil | `entity` (rectangles, lines), `annotation` (dimensions) |
+| 5 | Piping Isometrics | Single line, all dimensions, BOM, weld details | `entity` (polylines), `annotation` (dimensions, leaders) |
+
+**BFD vs PFD vs P&ID distinction:**
+
+| Feature | BFD | PFD | P&ID |
+|---------|-----|-----|------|
+| Equipment | None | Major only | All (including spares) |
+| Pipe lines | Major flows | Main process lines | Every line with number, size, spec |
+| Instruments | None | Major controllers only | All instruments with ISA tags |
+| Valves | None | Key control valves | Every valve with type and tag |
+| Line breaks | None | None | Cross-references between sheets |
+
+#### 2c. MCP Server integration
+
+**P&ID tooling is available via the AutoCAD MCP Server** at `C:\Users\ASUS\cad\`.
+
+The `pid` tool provides 12 operations:
+
+```
+pid(operation="setup_layers")                                → Create all 7 P&ID layers
+pid(operation="list_symbols",     data={"category": "VALVES"})  → List available symbols
+pid(operation="insert_symbol",    data={"category":"VALVES","symbol":"VA-GATE","x":100,"y":200,"scale":1.0,"rotation":0})
+pid(operation="draw_process_line",  data={"x1":0,"y1":0,"x2":100,"y2":50})
+pid(operation="connect_equipment",  data={"x1":0,"y1":0,"x2":100,"y2":50})
+pid(operation="add_flow_arrow",    data={"x":80,"y":40,"rotation":45})
+pid(operation="add_equipment_tag", data={"x":50,"y":120,"tag":"P-101A","description":"Feed Pump"})
+pid(operation="add_line_number",   data={"x":30,"y":10,"line_num":"PG-03-001-100","spec":"L1B-C"})
+pid(operation="insert_valve",     data={"x":60,"y":30,"valve_type":"GATE","rotation":0})
+pid(operation="insert_instrument", data={"x":80,"y":50,"instrument_type":"FLOW","tag_id":"FIC-101","range_value":"0-100 GPM"})
+pid(operation="insert_pump",      data={"x":20,"y":40,"pump_type":"CENTRIF1","rotation":0})
+pid(operation="insert_tank",      data={"x":20,"y":100,"tank_type":"VERTICAL_DOME","scale":1.5})
+```
+
+**Dual backend architecture:**
+
+| Backend | When Active | Symbol Quality |
+|---------|------------|----------------|
+| `file_ipc` | Live AutoCAD visible on desktop | Full ISA 5.1 CTO symbol blocks with attributes |
+| `ezdxf` headless | No AutoCAD running | Simplified geometric placeholders (rectangles, circles, diamonds) with labels |
+
+- Verify backend health with `system(operation="health")`.
+- For production P&IDs, always prefer the `file_ipc` backend with live AutoCAD.
+- The `.mcp.json` at `C:\Users\ASUS\cad\.mcp.json` defines the current bridge configuration.
+- When MCP is unavailable entirely, fall back to LISP helpers (see 2h).
+
+**Other MCP tools used in engineering drafting:**
+
+| Tool | Operations |
+|------|-----------|
+| `entity` | create_line, create_polyline, create_circle, create_rectangle, create_arc |
+| `layer` | list, create, set_current, freeze/thaw |
+| `annotation` | create_text, create_dimension_horizontal, create_dimension_vertical, create_dimension_aligned, create_leader |
+| `block` | list, insert, get_attributes, update_attribute |
+| `view` | zoom_extents, zoom_window, get_screenshot |
+| `drawing` | info |
+
+#### 2d. P&ID layer naming
+
+Always start a new P&ID with `pid(operation="setup_layers")`. This creates:
+
+| Layer | Color | Usage |
+|-------|-------|-------|
+| `PID-EQUIPMENT` | 6 (Magenta) | Equipment symbols — vessels, exchangers, tanks |
+| `PID-PROCESS-PIPING` | 4 (Cyan) | Major process lines — solid |
+| `PID-UTILITY-PIPING` | 3 (Green) | Utility / service lines — dashed |
+| `PID-INSTRUMENTS` | 5 (Blue) | Instrument bubbles, loops |
+| `PID-ELECTRICAL` | 1 (Red) | Signal / electrical lines — dotted |
+| `PID-ANNOTATION` | 7 (White/Black) | Tags, line numbers, notes |
+| `PID-VALVES` | 2 (Yellow) | Valve symbols |
+
+These map to the DEXPI / ISO discipline-prefix convention (`D-EQUIP-*`, `D-PIPE-MAJOR`, `D-INST-*`, etc.). See `references/pid-standards-reference.md` for the full mapping.
+
+**Line break priority** when lines cross: electrical signal > instrument > minor/utility > major process.
+Break gap: 3 mm.
+
+#### 2e. CTO symbol library
+
+The CAD Tools Online (CTO) library at `C:/PIDv4-CTO/` contains **600+ ISA 5.1-2009 standard P&ID symbols** as `.dwg` block files.
+
+**Six built-in categories** from `cto_library.py`:
+
+| Category | Key Symbols |
+|----------|------------|
+| **ACTUATORS** | Bellows Spring, Motor, Solenoid, Spring Diaphragm |
+| **ANNOTATION** | Equipment Tag, Equipment Description, Flow Arrow, Line Number |
+| **EQUIPMENT** | Clarifier, Filter, Filter Press, Heat Exchanger, Motor, Screen Bar |
+| **PUMPS-BLOWERS** | Centrifugal 1/2, Diaphragm, Metering, Progressive Cavity, Submersible |
+| **TANKS** | Vertical Open, Vertical Dome, Horizontal, Cone Bottom |
+| **VALVES** | Gate, Globe, Check, Ball, Butterfly, Knife Gate |
+
+**Discovery workflow:**
+
+1. Browse symbols: `pid(operation="list_symbols", data={"category": "VALVES"})`
+2. Place a symbol: `pid(operation="insert_symbol", data={"category":"VALVES","symbol":"VA-GATE","x":10,"y":20})`
+3. Populate attributes after insertion: `block(operation="update_attribute", data={"entity_id":"...","tag":"LINE-NO","value":"6-P-1001-B1A"})`
+
+CTO symbol blocks carry standard attributes (EQUIPMENT-TYPE, EQUIPMENT-NO, MANUFACTURER, MODEL-NO, LINE-NO, TAG, RANGE, SERVICE, MATERIAL, etc.). Valid P&IDs must have these populated. See `references/pid-standards-reference.md` for the full attribute table.
+
+#### 2f. Canonical P&ID workflow
+
+Follow this order for any new P&ID:
+
+**Step 1 — Initialize**
+- `pid(operation="setup_layers")`
+- `drawing(operation="info")` to verify the active document
+
+**Step 2 — Place major equipment**
+- Determine category/symbol from CTO library
+- `pid(operation="insert_pump", ...)`, `pid(operation="insert_tank", ...)`, or `pid(operation="insert_symbol", ...)` for specialty equipment
+- Use reasonable spacing: 80-150 mm between equipment centers in model space
+- Populate equipment number attributes (e.g., `P-101A`, `T-201`)
+
+**Step 3 — Draw process pipe runs**
+- `pid(operation="draw_process_line", data={"x1":...,"y1":...,"x2":...,"y2":...})` for straight segments
+- `pid(operation="connect_equipment", ...)` for orthogonal routes between equipment
+- Place on `PID-PROCESS-PIPING` (major lines) or `PID-UTILITY-PIPING` (utility)
+
+**Step 4 — Insert in-line components**
+- `pid(operation="insert_valve", data={"x":...,"y":...,"valve_type":"GATE","rotation":...})`
+- `pid(operation="insert_instrument", data={"x":...,"y":...,"instrument_type":"FLOW","tag_id":"FIC-101","range_value":"0-100 GPM"})`
+- Valves go on `PID-VALVES`, instruments on `PID-INSTRUMENTS`
+
+**Step 5 — Add flow arrows**
+- `pid(operation="add_flow_arrow", data={"x":...,"y":...,"rotation":...})`
+- One arrow per line direction; batch where needed
+
+**Step 6 — Annotate**
+- Equipment tags: `pid(operation="add_equipment_tag", data={"x":...,"y":...,"tag":"P-101A","description":"Centrifugal Feed Pump"})`
+- Line numbers: `pid(operation="add_line_number", data={"x":...,"y":...,"line_num":"PG-03-001-100","spec":"L1B-C"})`
+- Annotation text height: 2.5-3.0 mm for equipment tags, 2.0 mm for line numbers
+
+**Step 7 — Verify**
+- `entity(operation="count")` or per-layer counts
+- `view(operation="zoom_extents")` and `view(operation="get_screenshot")` for visual review
+
+#### 2g. Line numbering and annotation standards
+
+**HG/T 20519 domestic format** (primary reference for Chinese projects):
+
+```
+PG-03-001-100-L1B-C
+│  │  │   │   │  │
+│  │  │   │   │  └─ Insulation: C=Cold, H=Hot, I=Thermal, S=Acoustic
+│  │  │   │   └──── Pipe Class: L=1.0MPa, 1=seq, B=Carbon Steel
+│  │  │   └──────── Pipe Size: DN in mm
+│  │  └──────────── Serial: 001-999
+│  └─────────────── Unit/Area: 01-99
+└────────────────── Service Code: PG=Process Gas, PL=Process Liquid, CW=Cooling Water, etc.
+```
+
+**International EPC format:**
+
+```
+6-P-1001-B1A-H-ST  = 6" NPS, Process, line 1001, class B1A, Hot insulated, Steam Traced
+```
+
+**ISA 5.1 instrument tag format:**
+
+```
+FIC-101  = Flow Indicating Controller, loop 101
+PT-201   = Pressure Transmitter, loop 201
+LAHH     = Level Alarm High-High
+TCV-301  = Temperature Control Valve, loop 301
+```
+
+First letter = measured variable (F=Flow, P=Pressure, T=Temperature, L=Level, A=Analysis, S=Speed, W=Weight).
+Succeeding letters = function (I=Indicate, C=Control, T=Transmit, A=Alarm, S=Switch, R=Record, V=Valve, H=High).
+
+**Equipment numbering:** `[Type]-[Area][Serial][Suffix]` — e.g., `P-101A` = Pump, Area 100, first of two (A/B).
+
+Full tag letter tables and service codes are in `references/pid-standards-reference.md`.
+
+#### 2h. LISP fallback bridge
+
+When MCP is unavailable but COM connects to live AutoCAD, generate a `.lsp` file using `attribute_tools.lsp` commands.
+
+Key fallback commands from `C:\Users\ASUS\cad\lisp-code\attribute_tools.lsp`:
+
+| Command | Purpose |
+|---------|---------|
+| `insert-pid-equipment` | Full equipment block with CTO attributes |
+| `insert-valve-with-attributes` | Valve block + CTO metadata |
+| `insert-equipment-tag` | Equipment tag on ANNOT-EQUIP_TAG block |
+| `insert-equipment-description` | Multi-line description on ANNOT-EQUIP_DESCR block |
+| `insert-line-number` | Line number on ANNOT-LINE_NUMBER block |
+| `insert-instrument-with-tag` | Instrument block + TAG + RANGE |
+| `update-block-attribute` | Edit single attribute on any block entity |
+| `insert-block-simple` | Insert any CTO block without attribute dialog |
+| `insert-block-with-attribs` | Insert + batch attribute set from list |
+| `list-block-attributes` | Debug: dump all attributes from a block |
+
+Workflow: write the LISP commands to a `.lsp` file, instruct the user to `APPLOAD` it in AutoCAD, then run the generated commands.
+
+#### 2i. Headless / offline fallback (ezdxf)
+
+When no AutoCAD instance is running, the MCP server uses the ezdxf headless backend:
+
+- `pid` operations work but produce simplified geometry (rectangles for equipment, diamonds for valves, circles for instruments).
+- Layer assignments, labels, and tags are preserved correctly.
+- Generated `.dxf` files can be opened in AutoCAD later — re-insert CTO blocks to replace simplified placeholders with true ISA symbols.
+- For layout/coordination work, headless `.dxf` is sufficient. For production P&IDs, always require the final pass in live AutoCAD with the `file_ipc` backend.
+
+#### 2j. Standards quick reference
+
+Key standards governing chemical drafting — use these as design authority, not the skill itself:
+
+- **ISA 5.1-2009** — Instrumentation symbols and identification (basis of CTO library)
+- **ISO 10628 / ISO 14617** — Process equipment and diagram symbols
+- **HG/T 20519** — Chinese chemical process design documentation depth (line numbering basis)
+- **HG/T 20559.5** — Chinese standard for material codes on P&IDs
+- **ASME B31.3** — Process piping code (routing clearances, isometric annotation)
+- **ASME B16.5 / B16.47** — Pipe flanges and flanged fittings dimensions
+- **DEXPI 2.0** — Vendor-neutral P&ID/PFD data exchange (Proteus XML / OPC UA)
+- **PIP PIC001** — P&ID documentation criteria
+- **IEC 62424** — P&ID representation for process control
+
+Full symbol tables, service codes, tag letter matrices, and layer mappings are in `references/pid-standards-reference.md`.

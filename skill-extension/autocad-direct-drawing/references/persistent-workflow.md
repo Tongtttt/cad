@@ -35,3 +35,6 @@ For engineering drawings, default to rigorous drafting behavior.
 - Portrait tracing mode is for entertainment / likeness work and may use the existing portrait automation stack
 - If the user does not clearly say the target is a person or character image, default to engineering / chemical drafting mode
 - Engineering / chemical drafting mode must be treated as rigorous drafting work, not freehand likeness reconstruction
+- For P&ID and chemical drafting specifically, prefer the AutoCAD MCP Server `pid` tool at `C:\Users\ASUS\cad\` over raw COM calls
+- When MCP is unavailable, fall back to LISP helpers from `C:\Users\ASUS\cad\lisp-code\attribute_tools.lsp`
+- The MCP server `.mcp.json` at `C:\Users\ASUS\cad\.mcp.json` defines the bridge configuration
